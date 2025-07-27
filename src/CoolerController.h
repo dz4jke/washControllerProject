@@ -1,57 +1,56 @@
+// CoolerController.h
 #pragma once
-#include "TemperatureSensor.h"  // Подключение датчика температуры
-#include "EEPROMStorage.h"     // Подключение хранилища EEPROM
+#include "TemperatureSensor.h"
+#include "EEPROMStorage.h"
 
-// Структура настроек холодильника
+// Упакованная структура настроек охлаждения
 struct CoolerSettings {
-    float targetTemp = 4.0;    // Целевая температура по умолчанию
-    float hysteresis = 0.5;    // Гистерезис по умолчанию
+         // Контрольная сумма
+    float targetTemp = 4.0f;    // Целевая температура (°C)
+    float hysteresis = 2.0f;    // Гистерезис (°C)
     uint16_t minInterval = 300; // Минимальный интервал между включениями (сек)
-    uint8_t checksum = 0;      // Контрольная сумма для проверки целостности
-};
+    uint8_t checksum = 0; 
+    
+} __attribute__((packed));
 
 class CoolerController {
 private:
-    TemperatureSensor* sensor;  // Указатель на датчик температуры
-    uint8_t compressorPin;     // Пин управления компрессором
-    CoolerSettings settings;   // Текущие настройки
-    bool compressorState = false; // Состояние компрессора (вкл/выкл)
-    unsigned long lastStartTime = 0; // Время последнего включения
+    TemperatureSensor& sensor;  // Ссылка на датчик температуры
+    const uint8_t compressorPin; // Пин управления компрессором
+    CoolerSettings settings;    // Текущие настройки
+    bool compressorState;       // Состояние компрессора
+    unsigned long lastStartTime; // Время последнего включения
 
-    // Метод расчета контрольной суммы
-    uint8_t calculateChecksum() {
+    // Расчет контрольной суммы
+    uint8_t calculateChecksum() const {
         uint8_t sum = 0;
-        // Преобразуем структуру в массив байт
-        const uint8_t* data = reinterpret_cast<const uint8_t*>(&settings);
-        // Суммируем все байты, кроме последнего (checksum)
+        const uint8_t* p = (const uint8_t*)&settings;
         for(size_t i = 0; i < sizeof(settings) - 1; i++) {
-            sum += data[i];
+            sum += pgm_read_byte(p++);
         }
-        return 255 - sum;  // Возвращаем дополнение до 255
+        return ~sum; // Инвертированная сумма
     }
 
 public:
-    // Конструктор, принимающий датчик температуры и пин компрессора
-    CoolerController(TemperatureSensor* s, uint8_t pin) 
-        : sensor(s), compressorPin(pin) {
-        pinMode(pin, OUTPUT);  // Настройка пина как выход
-        digitalWrite(pin, LOW); // Выключение компрессора
+    // Конструктор
+    CoolerController(TemperatureSensor& sensorRef, uint8_t pin) 
+        : sensor(sensorRef), compressorPin(pin), 
+          compressorState(false), lastStartTime(0) {
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, LOW);
     }
 
     // Основной метод обновления состояния
     void update() {
-        float temp = sensor->getTemp();  // Получение текущей температуры
-        Serial.print(temp);
-        unsigned long now = millis();    // Текущее время
+        float temp = sensor.getTemp();
+        unsigned long now = millis();
+        unsigned long minIntervalMs = settings.minInterval * 1000UL;
 
-        // Условия включения компрессора:
-        // Температура выше целевой + гистерезис И
-        // Прошло достаточно времени с последнего включения
+        // Логика управления компрессором
         if(temp > settings.targetTemp + settings.hysteresis && 
-           now - lastStartTime > settings.minInterval * 1000UL) {
+           now - lastStartTime > minIntervalMs) {
             startCompressor();
         }
-        // Условие выключения - температура ниже целевой - гистерезис
         else if(temp < settings.targetTemp - settings.hysteresis) {
             stopCompressor();
         }
@@ -59,34 +58,40 @@ public:
 
     // Включение компрессора
     void startCompressor() {
-        if(!compressorState) {  // Если еще не включен
-            digitalWrite(compressorPin, HIGH);  // Включение
-            compressorState = true;             // Установка флага
-            lastStartTime = millis();           // Запись времени включения
+        if(!compressorState) {
+            digitalWrite(compressorPin, HIGH);
+            compressorState = true;
+            lastStartTime = millis();
         }
     }
 
     // Выключение компрессора
     void stopCompressor() {
-        digitalWrite(compressorPin, LOW);  // Выключение
-        compressorState = false;           // Сброс флага
+        digitalWrite(compressorPin, LOW);
+        compressorState = false;
     }
 
     // Загрузка настроек из EEPROM
     bool loadSettings() {
-        if(EEPROMStorage::read(0, settings)) {  // Чтение по адресу 0
-            return settings.checksum == calculateChecksum(); // Проверка контрольной суммы
-        }
-        return false;
+        constexpr int address = 0; // Сместить после CoolerSettings
+        EEPROMStorage::read(address, settings);
+        return settings.checksum == calculateChecksum();
     }
 
     // Сохранение настроек в EEPROM
-    bool saveSettings() {
-        settings.checksum = calculateChecksum();  // Расчет новой контрольной суммы
-        return EEPROMStorage::write(0, settings); // Запись по адресу 0
+    void saveSettings() {
+        settings.checksum = calculateChecksum();
+         constexpr int address = 0;
+        EEPROMStorage::write(address, settings);
     }
 
-    // Геттеры
-    bool isRunning() const { return compressorState; }  // Состояние компрессора
-    CoolerSettings& getSettings() { return settings; }   // Доступ к настройкам
+    // Проверка состояния компрессора
+    bool isRunning() const { 
+        return compressorState; 
+    }
+    
+    // Получение ссылки на настройки
+    CoolerSettings& getSettings() { 
+        return settings; 
+    }
 };

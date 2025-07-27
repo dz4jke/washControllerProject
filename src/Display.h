@@ -1,74 +1,99 @@
+// Display.h
 #pragma once
-#include <LiquidCrystal_I2C.h>  // Подключение библиотеки LCD дисплея
+#include <LiquidCrystal_I2C.h>
+#include <avr/pgmspace.h>
 
 class Display {
 private:
-    LiquidCrystal_I2C* lcd;  // Указатель на объект дисплея
-    char currentLine0[17] = {0};  // Текущее содержимое первой строки
-    char currentLine1[17] = {0};  // Текущее содержимое второй строки
+    LiquidCrystal_I2C& lcd;    // Ссылка на объект LCD
+    char prevLine0[17];        // Предыдущее состояние строки 0
+    char prevLine1[17];        // Предыдущее состояние строки 1
 
-    // Проверка изменения строки
-    bool isLineChanged(const char* newLine, const char* currentLine) {
-        return strcmp(newLine, currentLine) != 0;  // Сравнение строк
+    // Строки в памяти программ (PROGMEM)
+    static const char clearLine[] PROGMEM;
+
+    // Вывод строки из PROGMEM
+    void printFromProgmem(const char* str) {
+        char c;
+        while ((c = pgm_read_byte(str++))) {
+            lcd.write(c);
+        }
+    }
+
+    // Обновление строки дисплея, если она изменилась
+    void updateLine(uint8_t row, const char* newLine) {
+        char* prevLine = row ? prevLine1 : prevLine0;
+        if (strcmp(newLine, prevLine) != 0) {
+            lcd.setCursor(0, row);
+            printFromProgmem(clearLine);
+            lcd.setCursor(0, row);
+            lcd.print(newLine);
+            strcpy(prevLine, newLine);
+        }
     }
 
 public:
-    // Конструктор, принимающий указатель на LCD
-    Display(LiquidCrystal_I2C* lcd) : lcd(lcd) {}
+    // Конструктор
+    Display(LiquidCrystal_I2C& lcdInstance) : lcd(lcdInstance) {
+        memset(prevLine0, 0, sizeof(prevLine0));
+        memset(prevLine1, 0, sizeof(prevLine1));
+    }
 
     // Отображение главного экрана
-    void showMainScreen(const char* mode, float temp, bool mixerState) {
-        char newLine0[17], newLine1[17];  // Буферы для новых строк
-Serial.print("Temp value: "); Serial.println(temp);
+    void showMainScreen(float temperature, bool mixerState, bool coolerState) {
+    char line0[17], line1[17];
+    
+    // Формирование строки температуры (правильный порядок!)
+    strcpy_P(line0, PSTR("Temp: "));  // Сначала инициализируем строку
+    dtostrf(temperature, 5, 1, line0 + 6); // Затем добавляем температуру
+    strcat_P(line0, PSTR(" C"));      // Добавляем единицы измерения
+    
+    // Формирование строки состояния
+    strcpy_P(line1, PSTR("Mix:"));
+    strcat_P(line1, mixerState ? PSTR("ON ") : PSTR("OFF"));
+    strcat_P(line1, PSTR(" Cool:"));
+    strcat_P(line1, coolerState ? PSTR("ON") : PSTR("OFF"));
 
-        // Форматирование строк
-        snprintf(newLine0, 16, "%-16s", mode);  // Режим работы (выравнивание по левому краю)
-        snprintf(newLine1, 16, "T:%3.1fC M:%s", (double)temp, mixerState ? "ON" : "OFF");
-
-        // Обновление первой строки, если изменилась
-        if(isLineChanged(newLine0, currentLine0)) {
-            lcd->setCursor(0, 0);  // Установка курсора
-            lcd->print(newLine0);   // Вывод строки
-            strcpy(currentLine0, newLine0);  // Сохранение текущего состояния
-        }
-
-        // Обновление второй строки, если изменилась
-        if(isLineChanged(newLine1, currentLine1)) {
-            lcd->setCursor(0, 1);
-            lcd->print(newLine1);
-            strcpy(currentLine1, newLine1);
-        }
-    }
+    updateLine(0, line0);
+    updateLine(1, line1);
+}
 
     // Отображение экрана мойки
     void showWashingScreen(const char* stage, int remainingTime) {
-        char newLine0[17], newLine1[17];
+        char line0[17], line1[17];
+        
+        strcpy_P(line0, PSTR("Stage: "));
+        strncat(line0, stage, 9);
+        
+        strcpy_P(line1, PSTR("Time: "));
+        itoa(remainingTime, line1 + 6, 10);
+        strcat_P(line1, PSTR("s"));
 
-        snprintf(newLine0, 16, "%-16s", stage);  // Название этапа
-        snprintf(newLine1, 16, "Left: %3d sec", remainingTime);  // Оставшееся время
-
-        // Обновление строк, если изменились
-        if(isLineChanged(newLine0, currentLine0)) {
-            lcd->setCursor(0, 0);
-            lcd->print(newLine0);
-            strcpy(currentLine0, newLine0);
-        }
-
-        if(isLineChanged(newLine1, currentLine1)) {
-            lcd->setCursor(0, 1);
-            lcd->print(newLine1);
-            strcpy(currentLine1, newLine1);
-        }
+        // Для экрана мойки всегда обновляем
+        lcd.setCursor(0, 0);
+        printFromProgmem(clearLine);
+        lcd.setCursor(0, 0);
+        lcd.print(line0);
+        
+        lcd.setCursor(0, 1);
+        printFromProgmem(clearLine);
+        lcd.setCursor(0, 1);
+        lcd.print(line1);
+        
+        strcpy(prevLine0, line0);
+        strcpy(prevLine1, line1);
     }
 
-    // Отображение произвольного сообщения
-    void showMessage(const char* msg) {
-        lcd->clear();  // Очистка дисплея
-        lcd->setCursor(0, 0);  // Курсор в начало
-        lcd->print(msg);  // Вывод сообщения
-        // Сброс текущих строк
-        memset(currentLine0, 0, 17);
-        memset(currentLine1, 0, 17);
-        strncpy(currentLine0, msg, 16);  // Сохранение сообщения
+    // Отображение сообщения
+    void showMessage(const char* message) {
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print(message);
+        strncpy(prevLine0, message, 16);
+        prevLine0[16] = '\0';
+        prevLine1[0] = '\0';
     }
 };
+
+// Инициализация PROGMEM строк
+const char Display::clearLine[] PROGMEM = "                ";
