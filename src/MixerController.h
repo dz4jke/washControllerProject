@@ -1,92 +1,112 @@
 #pragma once
-#include "EEPROMStorage.h"  // Подключение хранилища EEPROM
+#include "EEPROMStorage.h"
 
-// Структура настроек мешалки
+// Структура настроек миксера
 struct MixerSettings {
-    uint8_t mode = 1;  // Режим работы (0-выкл, 1-с компрессором, 2-таймер)
-    uint16_t workTime = 60;  // Время работы в режиме таймера (сек)
-    uint16_t idleTime = 180;  // Время простоя в режиме таймера (сек)
-    uint8_t checksum = 0;  // Контрольная сумма
+    uint8_t mode = 1;          // Режим работы (0-выкл, 1-авто, 2-таймер)
+    uint16_t workTime = 60;     // Время работы в режиме таймера (сек)
+    uint16_t idleTime = 180;    // Время простоя в режиме таймера (сек)
+    uint8_t checksum = 0;      // Контрольная сумма
 };
 
+/*
+  Класс управления перемешивающим устройством
+  Реализует:
+  - Несколько режимов работы
+  - Циклическую работу по таймеру
+  - Сохранение настроек в EEPROM
+*/
 class MixerController {
 private:
-    uint8_t mixerPin;  // Пин управления мешалкой
-    MixerSettings settings;  // Текущие настройки
-    bool mixerState = false;  // Состояние мешалки
-    unsigned long lastSwitchTime = 0;  // Время последнего переключения
+    uint8_t _mixerPin;          // Пин управления миксером
+    MixerSettings _settings;    // Текущие настройки
+    bool _mixerState = false;   // Текущее состояние
+    unsigned long _lastSwitchTime = 0; // Время последнего переключения
 
     // Расчет контрольной суммы
-    uint8_t calculateChecksum() {
+    uint8_t _calculateChecksum() {
         uint8_t sum = 0;
-        const uint8_t* data = reinterpret_cast<const uint8_t*>(&settings);
-        for(size_t i = 0; i < sizeof(settings) - 1; i++) {
+        const uint8_t* data = reinterpret_cast<const uint8_t*>(&_settings);
+        for(size_t i = 0; i < sizeof(_settings) - 1; i++) {
             sum += data[i];
         }
-        return 255 - sum;  // Дополнение до 255
+        return 255 - sum;
     }
 
 public:
-    // Конструктор
-    MixerController(uint8_t pin) : mixerPin(pin) {
-        pinMode(pin, OUTPUT);  // Настройка пина как выход
-        digitalWrite(pin, LOW);  // Выключение мешалки
+    // Конструктор: принимает пин миксера
+    MixerController(uint8_t pin) : _mixerPin(pin) {
+        pinMode(pin, OUTPUT);      // Настраиваем пин как выход
+        digitalWrite(pin, LOW);     // Выключаем миксер
     }
 
-    // Основной метод обновления
+    /*
+      Обновление состояния (вызывать в loop)
+      compressorRunning - состояние компрессора (для режима 1)
+    */
     void update(bool compressorRunning) {
-        switch(settings.mode) {
-            case 0: stop(); break;  // Режим 0 - всегда выключена
-            case 1:  // Режим 1 - работает с компрессором
+        switch(_settings.mode) {
+            case 0: // Режим 0: всегда выключен
+                stop();
+                break;
+                
+            case 1: // Режим 1: работает только при включенном компрессоре
                 compressorRunning ? start() : stop();
                 break;
-            case 2:  // Режим 2 - работа по таймеру
-                if(mixerState) {
-                    // Проверка времени работы
-                    if(millis() - lastSwitchTime > settings.workTime * 1000UL) {
+                
+            case 2: // Режим 2: работает по таймеру
+                if(_mixerState) {
+                    // Проверяем, не истекло ли время работы
+                    if(millis() - _lastSwitchTime > _settings.workTime * 1000UL) {
                         stop();
-                        lastSwitchTime = millis();
+                        _lastSwitchTime = millis();  // Сбрасываем таймер
                     }
                 } else {
-                    // Проверка времени простоя
-                    if(millis() - lastSwitchTime > settings.idleTime * 1000UL) {
+                    // Проверяем, не истекло ли время простоя
+                    if(millis() - _lastSwitchTime > _settings.idleTime * 1000UL) {
                         start();
-                        lastSwitchTime = millis();
+                        _lastSwitchTime = millis();  // Сбрасываем таймер
                     }
                 }
                 break;
         }
     }
 
-    // Включение мешалки
+    // Включение миксера
     void start() {
-        digitalWrite(mixerPin, HIGH);
-        mixerState = true;
+        digitalWrite(_mixerPin, HIGH);  // Включаем
+        _mixerState = true;             // Обновляем состояние
     }
 
-    // Выключение мешалки
+    // Выключение миксера
     void stop() {
-        digitalWrite(mixerPin, LOW);
-        mixerState = false;
+        digitalWrite(_mixerPin, LOW);   // Выключаем
+        _mixerState = false;            // Обновляем состояние
     }
 
     // Загрузка настроек из EEPROM
     bool loadSettings() {
-        // Чтение с адреса, следующего за настройками холодильника
-        if(EEPROMStorage::read(sizeof(CoolerSettings), settings)) {
-            return settings.checksum == calculateChecksum();
+        // Читаем с учетом размера предыдущей структуры (CoolerSettings)
+        if(EEPROMStorage::read(sizeof(CoolerSettings), _settings)) {
+            return _settings.checksum == _calculateChecksum();
         }
         return false;
     }
 
     // Сохранение настроек в EEPROM
     bool saveSettings() {
-        settings.checksum = calculateChecksum();
-        // Запись с адреса, следующего за настройками холодильника
-        return EEPROMStorage::write(sizeof(CoolerSettings), settings);
+        _settings.checksum = _calculateChecksum();
+        // Записываем с учетом размера предыдущей структуры
+        return EEPROMStorage::write(sizeof(CoolerSettings), _settings);
     }
 
-    // Геттеры
-    bool isActive() const { return mixerState; }  // Состояние мешалки
-    MixerSettings& getSettings() { return settings; }  // Доступ к настройкам
+    // Получение текущего состояния миксера
+    bool isActive() const { 
+        return _mixerState; 
+    }
+    
+    // Получение ссылки на настройки (для меню)
+    MixerSettings& getSettings() { 
+        return _settings; 
+    }
 };
