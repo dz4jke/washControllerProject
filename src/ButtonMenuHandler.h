@@ -195,7 +195,7 @@ public:
         MixerController &mixerRef, WashingController &washerRef) : btnUp(upPin), btnDown(downPin), btnSet(setPin), btnEsc(escPin),
                                                                    display(displayRef), cooler(coolerRef), mixer(mixerRef), washer(washerRef)
     {
-        // Настройка кнопок
+        // Настройка кнопокzz
         btnUp.setTickMode(AUTO);
         btnDown.setTickMode(AUTO);
         btnSet.setTickMode(AUTO);
