@@ -98,14 +98,9 @@ void setup()
     Serial.println(washer.getSettings().stageTimes[4]);
     Serial.println(washer.getSettings().checksum);
     // Настройка прерывания для кнопки мойки
-    pinMode(WASH_BUTTON_PIN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(WASH_BUTTON_PIN), washButtonISR, FALLING);
-
-    // Включаем watchdog с таймаутом 2 секунды
-    wdt_enable(WDTO_2S);
-
-    // Отображаем сообщение о готовности
-    display.showMainScreen(tempSensor.getTemp(), mixer.isActive(), cooler.isRunning());
+    attachInterrupt(digitalPinToInterrupt(5), washButtonISR, FALLING);
+    // wdt_enable(WDT_TIMEOUT);  // Включение watchdog
+     display.showMainScreen("System Ready", tempSensor.getTemp(), mixer.isActive());
 }
 
 void loop()
