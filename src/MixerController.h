@@ -1,92 +1,108 @@
+// MixerController.h
 #pragma once
-#include "EEPROMStorage.h"  // Подключение хранилища EEPROM
+#include "EEPROMStorage.h"
 
-// Структура настроек мешалки
+// Упакованная структура настроек миксера
 struct MixerSettings {
-    uint8_t mode = 1;  // Режим работы (0-выкл, 1-с компрессором, 2-таймер)
-    uint16_t workTime = 60;  // Время работы в режиме таймера (сек)
-    uint16_t idleTime = 180;  // Время простоя в режиме таймера (сек)
-    uint8_t checksum = 0;  // Контрольная сумма
-};
+    uint8_t mode = 1;        // Режим работы (0-выкл, 1-авто, 2-таймер)
+    uint16_t workTime = 60;  // Время работы (сек)
+    uint16_t idleTime = 180; // Время простоя (сек)
+    uint8_t checksum = 0;    // Контрольная сумма
+} __attribute__((packed));
 
 class MixerController {
 private:
-    uint8_t mixerPin;  // Пин управления мешалкой
+    const uint8_t mixerPin;  // Пин управления миксером
     MixerSettings settings;  // Текущие настройки
-    bool mixerState = false;  // Состояние мешалки
-    unsigned long lastSwitchTime = 0;  // Время последнего переключения
+    bool mixerState;         // Состояние миксера
+    unsigned long lastSwitchTime; // Время последнего переключения
 
     // Расчет контрольной суммы
-    uint8_t calculateChecksum() {
+    uint8_t calculateChecksum() const {
         uint8_t sum = 0;
-        const uint8_t* data = reinterpret_cast<const uint8_t*>(&settings);
+        const uint8_t* p = (const uint8_t*)&settings;
         for(size_t i = 0; i < sizeof(settings) - 1; i++) {
-            sum += data[i];
+            sum += *p++;
         }
-        return 255 - sum;  // Дополнение до 255
+        return ~sum;
     }
 
 public:
     // Конструктор
-    MixerController(uint8_t pin) : mixerPin(pin) {
-        pinMode(pin, OUTPUT);  // Настройка пина как выход
-        digitalWrite(pin, LOW);  // Выключение мешалки
+    MixerController(uint8_t pin) 
+        : mixerPin(pin), mixerState(false), lastSwitchTime(0) {
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, LOW);
     }
 
-    // Основной метод обновления
+    // Основной метод обновления состояния
     void update(bool compressorRunning) {
+        unsigned long currentMillis = millis();
+        unsigned long elapsed = currentMillis - lastSwitchTime;
+        
         switch(settings.mode) {
-            case 0: stop(); break;  // Режим 0 - всегда выключена
-            case 1:  // Режим 1 - работает с компрессором
-                compressorRunning ? start() : stop();
+            case 0: // Всегда выключен
+                if(mixerState) stop();
                 break;
-            case 2:  // Режим 2 - работа по таймеру
+                
+            case 1: // Работает с компрессором
+                if(compressorRunning != mixerState) {
+                    compressorRunning ? start() : stop();
+                }
+                break;
+                
+            case 2: // Таймерный режим
                 if(mixerState) {
-                    // Проверка времени работы
-                    if(millis() - lastSwitchTime > settings.workTime * 1000UL) {
+                    if(elapsed > settings.workTime * 1000UL) {
                         stop();
-                        lastSwitchTime = millis();
+                        lastSwitchTime = currentMillis;
                     }
-                } else {
-                    // Проверка времени простоя
-                    if(millis() - lastSwitchTime > settings.idleTime * 1000UL) {
-                        start();
-                        lastSwitchTime = millis();
-                    }
+                } 
+                else if(elapsed > settings.idleTime * 1000UL) {
+                    start();
+                    lastSwitchTime = currentMillis;
                 }
                 break;
         }
     }
 
-    // Включение мешалки
+    // Включение миксера
     void start() {
-        digitalWrite(mixerPin, HIGH);
-        mixerState = true;
+        if(!mixerState) {
+            digitalWrite(mixerPin, HIGH);
+            mixerState = true;
+        }
     }
 
-    // Выключение мешалки
+    // Выключение миксера
     void stop() {
-        digitalWrite(mixerPin, LOW);
-        mixerState = false;
+        if(mixerState) {
+            digitalWrite(mixerPin, LOW);
+            mixerState = false;
+        }
     }
 
     // Загрузка настроек из EEPROM
     bool loadSettings() {
-        // Чтение с адреса, следующего за настройками холодильника
-        if(EEPROMStorage::read(sizeof(CoolerSettings), settings)) {
-            return settings.checksum == calculateChecksum();
-        }
-        return false;
+        constexpr int address = sizeof(CoolerSettings); // Сместить после CoolerSettings
+        EEPROMStorage::read(address, settings);
+        return settings.checksum == calculateChecksum();
     }
 
     // Сохранение настроек в EEPROM
-    bool saveSettings() {
+    void saveSettings() {
         settings.checksum = calculateChecksum();
-        // Запись с адреса, следующего за настройками холодильника
-        return EEPROMStorage::write(sizeof(CoolerSettings), settings);
+        constexpr int address = sizeof(CoolerSettings);
+        EEPROMStorage::write(address, settings);
     }
 
-    // Геттеры
-    bool isActive() const { return mixerState; }  // Состояние мешалки
-    MixerSettings& getSettings() { return settings; }  // Доступ к настройкам
+    // Проверка состояния миксера
+    bool isActive() const { 
+        return mixerState; 
+    }
+    
+    // Получение ссылки на настройки
+    MixerSettings& getSettings() { 
+        return settings; 
+    }
 };

@@ -1,48 +1,42 @@
 #pragma once
-#include <GyverNTC.h> // Подключение библиотеки для NTC термистора
+#include <GyverNTC.h>
 
-class TemperatureSensor
-{
+// Класс датчика температуры
+class TemperatureSensor {
 private:
-    GyverNTC ntc;                  // Объект термистора
-    float filteredTemp;      // Отфильтрованное значение температуры
-    float alpha = 0.1;             // Коэффициент фильтра (0.1 - 10% нового значения)
-    float calibrationOffset = 0.0; // Смещение для калибровки
+    GyverNTC ntc;
+    float filteredTemp;
+    const float alpha;
+    float calibrationOffset;
+    float one_minus_alpha;
 
 public:
-    // Конструктор с параметрами термистора
-    TemperatureSensor(uint8_t pin, int R, int B, int Rt)
-        : ntc(pin, R, B, Rt) {} // Инициализация объекта термистора
+    // Конструктор
+    TemperatureSensor(uint8_t pin, int R = 10000, int B = 3950, float a = 0.1f) 
+        : ntc(pin, R, B), 
+          filteredTemp(0.0f), 
+          alpha(constrain(a, 0.01f, 0.3f)), 
+          calibrationOffset(0.0f),
+          one_minus_alpha(1.0f - alpha) {}
 
-    // Обновление значения температуры
-    void update()
-    {
-        float rawTemp = ntc.getTempAverage();  // Получение сырого значения
-        //  Экспоненциальное сглаживание
-        filteredTemp = alpha * rawTemp + (1 - alpha) * filteredTemp;
+    // Обновление показаний
+    void update() {
+        float rawTemp = ntc.getTemp();  
+        filteredTemp += alpha * (rawTemp - filteredTemp);
     }
 
-    // Получение текущей температуры (с учетом калибровки)
-    float getTemp() const
-    {
-        return filteredTemp + calibrationOffset;
+    // Получение температуры
+    float getTemp() const { 
+        return filteredTemp + calibrationOffset; 
     }
 
     // Проверка исправности датчика
-    bool isSensorOK() const
-    {
-        return filteredTemp > -50 && filteredTemp < 150; // Разумный диапазон
+    bool isSensorOK() const {
+        return !(filteredTemp <= -50.0f || filteredTemp >= 150.0f);
     }
 
-    // Установка коэффициента фильтра
-    void setFilterCoefficient(float a)
-    {
-        alpha = constrain(a, 0.01, 0.3); // Ограничение диапазона
-    }
-
-    // Калибровка датчика по эталонному значению
-    void calibrate(float referenceTemp)
-    {
+    // Калибровка
+    void calibrate(float referenceTemp) {
         calibrationOffset = referenceTemp - filteredTemp;
     }
 };

@@ -1,107 +1,149 @@
+// main.cpp
 #include <Arduino.h>
-#include <EEPROM.h>
 #include <LiquidCrystal_I2C.h>
 #include <GyverNTC.h>
 #include <GyverButton.h>
 #include <avr/wdt.h>
 #include "Display.h"
 #include "TemperatureSensor.h"
-#include "ButtonHandler.h"
+#include "ButtonMenuHandler.h"
 #include "CoolerController.h"
 #include "MixerController.h"
 #include "WashingController.h"
-#include "MenuSystem.h"
+#include "EEPROMStorage.h"
 #include "SafetySystem.h"
 
-#define WDT_TIMEOUT WDTO_2S // Таймаут watchdog (2 секунды)
+// Пины подключения
+#define TEMP_SENSOR_PIN A0
+#define COMPRESSOR_PIN 8
+#define MIXER_PIN 7
+#define WASH_BUTTON_PIN 2
+#define UP_BUTTON_PIN 3
+#define DOWN_BUTTON_PIN 4
+#define SET_BUTTON_PIN 6
+#define ESC_BUTTON_PIN 5
+#define DRAIN_VALVE_PIN 9
+#define COLD_WATER_VALVE_PIN 10
+#define HOT_WATER_VALVE_PIN 11
+#define WASH_PUMP_PIN 12
+#define ALKALI_PUMP_PIN 13
+#define ACID_PUMP_PIN A1
 
-// Создание объектов всех компонентов системы
-LiquidCrystal_I2C lcd(0x27, 16, 2); // LCD с адресом 0x27, 16x2
+// Константы
+#define DISPLAY_UPDATE_INTERVAL 500 // Интервал обновления дисплея (мс)
 
-SafetySystem safety;                                 // Система безопасности
-Display display(&lcd);                               // Дисплей
-TemperatureSensor tempSensor(A0, 10000, 3950, 25); // Датчик температуры
-ButtonHandler buttons(2, 3, 4, 5);                   // Кнопки (пины 2-5)
-// CoolerController cooler(&tempSensor, 6);  // Контроллер холодильника
-MixerController mixer(7);                       // Контроллер мешалки
-WashingController washer(8, 9, 10, 11, 12, 13); // Контроллер мойки
-// MenuSystem menu(&display, &buttons, &cooler, &mixer, &washer);  // Меню
+// Глобальные объекты
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+TemperatureSensor tempSensor(TEMP_SENSOR_PIN);
+CoolerController cooler(tempSensor, COMPRESSOR_PIN);
+MixerController mixer(MIXER_PIN);
+WashingController washer(
+    DRAIN_VALVE_PIN, COLD_WATER_VALVE_PIN, HOT_WATER_VALVE_PIN,
+    WASH_PUMP_PIN, ALKALI_PUMP_PIN, ACID_PUMP_PIN);
+Display display(lcd);
+ButtonMenuHandler buttons(
+    UP_BUTTON_PIN, DOWN_BUTTON_PIN, SET_BUTTON_PIN, ESC_BUTTON_PIN,
+    display, cooler, mixer, washer);
+SafetySystem safety;
 
-// Флаги и таймеры для обновления дисплея
-volatile bool updateDisplayFlag = true;
+// Переменные состояния
 unsigned long lastDisplayUpdate = 0;
-const unsigned long DISPLAY_UPDATE_INTERVAL = 500; // Интервал обновления (мс)
 
 // Обработчик прерывания для кнопки мойки
 void washButtonISR()
 {
-    // if(!menu.isActive() && !washer.isRunning()) {  // Если не в меню и мойка не запущена
-    //    washer.startWashing();  // Запуск мойки
-    // }
-}
-
-// Функция обновления дисплея
-void updateDisplay()
-{
-    // if(washer.isRunning()) {  // Если мойка активна
-    //    display.showWashingScreen(washer.getStageName(), washer.getTimeLeft());
-    // } else {  // Основной экран
-    //     display.showMainScreen("Cooling", tempSensor.getTemp(), mixer.isActive());
-    //  }
+    if (!buttons.isMenuActive() && !washer.isRunning())
+    {
+        washer.startWashing();
+    }
 }
 
 void setup()
 {
-    // wdt_disable();  // Отключение watchdog на время инициализации
-    Serial.begin(9600); // Инициализация Serial
-    lcd.init();         // Инициализация LCD
-    lcd.backlight();    // Включение подсветки
+    cooler.saveSettings(); // Сохраняем настройки сразу при запуске
+        mixer.saveSettings();
+        washer.saveSettings();
 
-    // Проверка EEPROM
-    // if(!EEPROM.begin()) {
-    //    display.showMessage("EEPROM Error!");
-    //     delay(2000);
-    // }
+    wdt_disable(); // Временно отключаем watchdog
+
+    // Инициализация последовательного порта
+    Serial.begin(115200);
+    Serial.println("System starting...");
+
+    // Инициализация дисплея
+    lcd.init();
+    lcd.backlight();
+
+    display.showMessage("Initializing...");
 
     // Загрузка настроек
-    // if(!cooler.loadSettings() || !mixer.loadSettings() || !washer.loadSettings()) {
-    //  display.showMessage("Load Settings Err");
-    //   delay(2000);
-    // }
-
+    if (!cooler.loadSettings() || !mixer.loadSettings() || !washer.loadSettings())
+    {
+        display.showMessage("Load Settings Err");
+        delay(2000);
+    }
+    
+    Serial.println(cooler.getSettings().minInterval);
+    Serial.println(cooler.getSettings().checksum);
+    Serial.println(cooler.getSettings().targetTemp);
+    Serial.println(cooler.getSettings().hysteresis);
+    Serial.println(mixer.getSettings().mode);
+    Serial.println(mixer.getSettings().workTime);
+    Serial.println(mixer.getSettings().idleTime);
+    Serial.println(mixer.getSettings().checksum);
+    Serial.println(washer.getSettings().stageTimes[0]);
+    Serial.println(washer.getSettings().stageTimes[1]);
+    Serial.println(washer.getSettings().stageTimes[2]);
+    Serial.println(washer.getSettings().stageTimes[3]);
+    Serial.println(washer.getSettings().stageTimes[4]);
+    Serial.println(washer.getSettings().checksum);
     // Настройка прерывания для кнопки мойки
-    // attachInterrupt(digitalPinToInterrupt(5), washButtonISR, FALLING);
-    // wdt_enable(WDT_TIMEOUT);  // Включение watchdogдщд
+    attachInterrupt(digitalPinToInterrupt(5), washButtonISR, FALLING);
+    // wdt_enable(WDT_TIMEOUT);  // Включение watchdog
      display.showMainScreen("System Ready", tempSensor.getTemp(), mixer.isActive());
 }
 
 void loop()
 {
-    // wdt_reset();  // Сброс watchdog
-    // buttons.update();  // Обновление состояния кнопок
-     tempSensor.update();  // Обновление датчика температуры
-     display.showMainScreen("System Ready", tempSensor.getTemp(), mixer.isActive());
-    // safety.checkActivity();  // Проверка активности системы
+    wdt_reset(); // Сбрасываем watchdog
 
-    // if(menu.isActive()) {  // Если активно меню
-    //   menu.update();  // Обновление меню
-    // } else {  // Основной режим работы
-    //    cooler.update();  // Управление холодильником
-    //     mixer.update(cooler.isRunning());  // Управление мешалкой
+    // Обновление всех компонентов
+    buttons.update();
+    tempSensor.update();
+    // safety.checkActivity();
 
-    //    if(washer.isRunning()) {  // Если мойка активна
-    //       washer.update();  // Обновление состояния мойки
-    //   }
-    // }
+    // Если меню не активно - обновляем основные системы
+    if (!buttons.isMenuActive())
+    {
+        cooler.update();
+        mixer.update(cooler.isRunning());
 
-    // Обновление дисплея по таймеру
-    // if(millis() - lastDisplayUpdate >= DISPLAY_UPDATE_INTERVAL) {
-    //     updateDisplay();
-    //     lastDisplayUpdate = millis();
-    // }
+        if (washer.isRunning())
+        {
+            washer.update();
+        }
 
-    // Небольшая задержка, если не активна мойка и не меню
-    // if(!washer.isRunning() && !menu.isActive()) {
-    //     delay(100);
-    //}
+        // Обновление дисплея с заданным интервалом
+        if (millis() - lastDisplayUpdate >= DISPLAY_UPDATE_INTERVAL)
+        {
+            if (washer.isRunning())
+            {
+                display.showWashingScreen(washer.getStageName(), washer.getTimeLeft());
+            }
+            else
+            {
+                display.showMainScreen(
+                    tempSensor.getTemp(),
+                    mixer.isActive(),
+                    cooler.isRunning());
+            }
+            lastDisplayUpdate = millis();
+        }
+    }
+
+    // Небольшая задержка для снижения нагрузки
+    if (!washer.isRunning() && !buttons.isMenuActive())
+    {
+        delay(100);
+    }
 }
