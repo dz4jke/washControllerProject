@@ -4,7 +4,7 @@
 class ButtonHandler {
 private:
     // Объекты кнопок из библиотеки GyverButton
-    GButton btnUp;    // Кнопка "Вверх"
+    GButton btnUp;    // Кнопка "Вверх"h
     GButton btnDown;  // Кнопка "Вниз"
     GButton btnSet;   // Кнопка "Установка"
     GButton btnEsc;   // Кнопка "Отмена"
