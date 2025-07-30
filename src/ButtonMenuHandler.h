@@ -101,7 +101,6 @@ private:
         if (!editingValue)
         {
             editingValue = true;
-            static int currentItem = 0;
             showCurrentValue();
         }
 

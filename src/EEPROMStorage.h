@@ -10,14 +10,14 @@ public:
 
     // Шаблонная функция чтения данных из EEPROM
     template <typename T>
-    static void read(int address, T &data)
+    static void read(uint16_t address, T &data)
     {
         EEPROM.get(address, data);
     }
 
     // Шаблонная функция записи данных в EEPROM (только если отличается)
     template <typename T>
-    static void write(int address, const T &data)
+    static void write(uint16_t address, const T &data)
     {
         T current;
         EEPROM.get(address, current);
@@ -30,7 +30,7 @@ public:
     // Очистка EEPROM (только если не нули, чтобы не расходовать ресурс)
     static void clear()
     {
-        for (int i = 0; i < EEPROM.length(); ++i)
+        for (uint16_t i = 0; i < EEPROM.length(); ++i)
         {
             if (EEPROM.read(i) != 0)
             {

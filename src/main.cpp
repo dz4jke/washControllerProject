@@ -100,7 +100,7 @@ void setup()
     // Настройка прерывания для кнопки мойки
     attachInterrupt(digitalPinToInterrupt(5), washButtonISR, FALLING);
     // wdt_enable(WDT_TIMEOUT);  // Включение watchdog
-     display.showMainScreen("System Ready", tempSensor.getTemp(), mixer.isActive());
+     display.showMainScreen(tempSensor.getTemp(), mixer.isActive(),cooler.isRunning());
 }
 
 void loop()
