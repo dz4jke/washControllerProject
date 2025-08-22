@@ -1,5 +1,6 @@
 #pragma once
 #include "EEPROMStorage.h"
+#include <Arduino.h> // Добавлено для pinMode/digitalWrite
 
 /*
  * Структура настроек мойки
@@ -44,7 +45,7 @@ private:
         for(size_t i = 0; i < sizeof(settings) - 1; i++) {
             sum += data[i];
         }
-        return ~sum;
+        return ~sum; // Инвертированная сумма
     }
 
     /*
@@ -52,7 +53,7 @@ private:
      * stage - номер этапа (1-5)
      */
     void activateStage(uint8_t stage) {
-        // Выключение всех устройств
+        // Выключение всех устройств перед активацией нового этапа
         digitalWrite(drainValvePin, LOW);
         digitalWrite(coldWaterValvePin, LOW);
         digitalWrite(hotWaterValvePin, LOW);
@@ -64,7 +65,6 @@ private:
         switch(stage) {
             case 1: // Холодное ополаскивание
                 digitalWrite(drainValvePin, HIGH);
-                delay(50); // Задержка для открытия клапана
                 digitalWrite(coldWaterValvePin, HIGH);
                 break;
                 
@@ -74,6 +74,7 @@ private:
                 break;
                 
             case 3: // Промежуточное ополаскивание
+                digitalWrite(drainValvePin, HIGH); // Обычно слив открыт на ополаскивании
                 digitalWrite(hotWaterValvePin, HIGH);
                 break;
                 
@@ -83,6 +84,7 @@ private:
                 break;
                 
             case 5: // Финальное ополаскивание
+                digitalWrite(drainValvePin, HIGH); // Обычно слив открыт на ополаскивании
                 digitalWrite(hotWaterValvePin, HIGH);
                 break;
         }
@@ -94,7 +96,7 @@ public:
      * Параметры - пины управления устройствами
      */
     WashingController(uint8_t drain, uint8_t cold, uint8_t hot,
-                    uint8_t wash, uint8_t alkali, uint8_t acid)
+                      uint8_t wash, uint8_t alkali, uint8_t acid)
         : drainValvePin(drain), coldWaterValvePin(cold), hotWaterValvePin(hot),
           washPumpPin(wash), alkaliPumpPin(alkali), acidPumpPin(acid),
           washingRunning(false), currentStage(0), stageStartTime(0)
@@ -107,7 +109,7 @@ public:
         pinMode(alkaliPumpPin, OUTPUT);
         pinMode(acidPumpPin, OUTPUT);
         
-        // Выключение всех устройств
+        // Выключение всех устройств по умолчанию
         digitalWrite(drainValvePin, LOW);
         digitalWrite(coldWaterValvePin, LOW);
         digitalWrite(hotWaterValvePin, LOW);
@@ -133,7 +135,7 @@ public:
      * Запуск мойки
      */
     void startWashing() {
-        if(washingRunning) return;
+        if(washingRunning) return; // Если мойка уже запущена, ничего не делаем
         
         washingRunning = true;
         currentStage = 1;
@@ -175,9 +177,15 @@ public:
      * Возвращает true, если настройки загружены успешно
      */
     bool loadSettings() {
-        constexpr int address = sizeof(CoolerSettings) + sizeof(MixerSettings);
+        // Адрес после настроек компрессора и миксера
+        constexpr int address = sizeof(CoolerSettings) + sizeof(MixerSettings); 
         EEPROMStorage::read(address, settings);
-        return settings.checksum == calculateChecksum();
+        // Проверка контрольной суммы, если не совпадает, используем дефолтные
+        if(settings.checksum != calculateChecksum()) {
+            settings = WashingSettings(); // Сброс к настройкам по умолчанию
+            return false;
+        }
+        return true;
     }
 
     /*
@@ -210,8 +218,12 @@ public:
      * Возвращает строку с названием этапа
      */
     const char* getStageName() const {
-        static char buffer[16];
-        strcpy_P(buffer, (const char*)pgm_read_word(&(stageNames[currentStage])));
+        static char buffer[16]; // Статический буфер для возвращаемой строки
+        if (currentStage > 0 && currentStage <= 5) {
+            strcpy_P(buffer, (const char*)pgm_read_word(&(stageNames[currentStage])));
+        } else {
+            strcpy_P(buffer, (const char*)pgm_read_word(&(stageNames[0]))); // "IDLE"
+        }
         return buffer;
     }
     
@@ -220,8 +232,10 @@ public:
      * Возвращает время в секундах
      */
     int getTimeLeft() const {
-        if(!washingRunning) return 0;
-        return settings.stageTimes[currentStage-1] - ((millis() - stageStartTime) / 1000);
+        if(!washingRunning || currentStage == 0) return 0;
+        unsigned long elapsedStageTime = (millis() - stageStartTime) / 1000UL;
+        int timeLeft = settings.stageTimes[currentStage-1] - elapsedStageTime;
+        return (timeLeft > 0) ? timeLeft : 0; // Возвращаем 0, если время уже вышло
     }
     
     /*
@@ -242,10 +256,10 @@ public:
 
 // Инициализация названий этапов в PROGMEM
 const char* const WashingController::stageNames[6] PROGMEM = {
-    "IDLE",             // 0 - не активно
-    "COLD RINSE",       // 1 - холодное ополаскивание
-    "ALKALI WASH",      // 2 - щелочная мойка
-    "INTERM. RINSE",    // 3 - промежуточное ополаскивание
-    "ACID WASH",        // 4 - кислотная мойка
-    "FINAL RINSE"       // 5 - финальное ополаскивание
+    "IDLE",               // 0 - не активно
+    "COLD RINSE",         // 1 - холодное ополаскивание
+    "ALKALI WASH",        // 2 - щелочная мойка
+    "INTERM. RINSE",      // 3 - промежуточное ополаскивание
+    "ACID WASH",          // 4 - кислотная мойка
+    "FINAL RINSE"         // 5 - финальное ополаскивание
 };

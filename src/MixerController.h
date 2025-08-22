@@ -1,29 +1,26 @@
 #pragma once
 #include "EEPROMStorage.h"
+#include <Arduino.h>
 
 /*
  * Структура настроек миксера
  */
 struct MixerSettings {
-    uint8_t mode = 1;        // Режим работы (0-выкл, 1-авто, 2-таймер)
-    uint16_t workTime = 60;  // Время работы в таймерном режиме (сек)
-    uint16_t idleTime = 180; // Время простоя в таймерном режиме (сек)
-    uint8_t checksum = 0;    // Контрольная сумма
+    uint8_t mode = 1;         // Режим работы (0-выкл, 1-авто (с компрессором), 2-таймер)
+    uint16_t workTime = 60;   // Время работы в таймерном режиме (сек)
+    uint16_t idleTime = 180;  // Время простоя в таймерном режиме (сек)
+    uint8_t checksum = 0;     // Контрольная сумма
 } __attribute__((packed));
 
 /*
  * Класс для управления перемешивающим устройством
- * Реализует:
- * - Несколько режимов работы
- * - Таймерные функции
- * - Сохранение настроек в EEPROM
  */
 class MixerController {
 private:
-    const uint8_t mixerPin;  // Пин управления миксером
-    MixerSettings settings;  // Текущие настройки
-    bool mixerState;         // Текущее состояние
-    unsigned long lastSwitchTime; // Время последнего переключения
+    const uint8_t mixerPin;
+    MixerSettings settings;
+    bool mixerState = false;
+    unsigned long lastSwitchTime = 0; // Время последнего изменения состояния миксера
 
     /*
      * Расчет контрольной суммы
@@ -34,7 +31,7 @@ private:
         for(size_t i = 0; i < sizeof(settings) - 1; i++) {
             sum += p[i];
         }
-        return ~sum;
+        return ~sum; // Инвертированная сумма
     }
 
 public:
@@ -43,10 +40,10 @@ public:
      * pin - пин управления миксером
      */
     MixerController(uint8_t pin) 
-        : mixerPin(pin), mixerState(false), lastSwitchTime(0) 
+        : mixerPin(pin)
     {
         pinMode(pin, OUTPUT);
-        digitalWrite(pin, LOW);
+        digitalWrite(pin, LOW); // Миксер выключен по умолчанию
     }
 
     /*
@@ -62,26 +59,27 @@ public:
                 if(mixerState) stop();
                 break;
                 
-            case 1: // Режим 1 - работает с компрессором
-                if(compressorRunning != mixerState) {
+            case 1: // Режим 1 - работает синхронно с компрессором
+                if(compressorRunning != mixerState) { // Изменяем состояние, только если оно не совпадает
                     compressorRunning ? start() : stop();
                 }
                 break;
                 
             case 2: // Режим 2 - таймерный режим
                 if(mixerState) {
-                    // Проверка времени работы
-                    if(elapsed > settings.workTime * 1000UL) {
+                    // Миксер включен, проверяем, не пора ли его выключить
+                    if(elapsed > (unsigned long)settings.workTime * 1000UL) {
                         stop();
-                        lastSwitchTime = currentMillis;
                     }
                 } else {
-                    // Проверка времени простоя
-                    if(elapsed > settings.idleTime * 1000UL) {
+                    // Миксер выключен, проверяем, не пора ли его включить
+                    if(elapsed > (unsigned long)settings.idleTime * 1000UL) {
                         start();
-                        lastSwitchTime = currentMillis;
                     }
                 }
+                break;
+            default:
+                if(mixerState) stop(); // Неизвестный режим - выключаем
                 break;
         }
     }
@@ -90,9 +88,10 @@ public:
      * Включение миксера
      */
     void start() {
-        if(!mixerState) {
+        if (!mixerState) { // Включаем только если он выключен
             digitalWrite(mixerPin, HIGH);
             mixerState = true;
+            lastSwitchTime = millis(); // Запоминаем время включения
         }
     }
 
@@ -100,9 +99,10 @@ public:
      * Выключение миксера
      */
     void stop() {
-        if(mixerState) {
+        if (mixerState) { // Выключаем только если он включен
             digitalWrite(mixerPin, LOW);
             mixerState = false;
+            lastSwitchTime = millis(); // Запоминаем время выключения
         }
     }
 
@@ -111,7 +111,7 @@ public:
      * state - true для включения, false для выключения
      */
     void setMixerState(bool state) {
-        if(state) {
+        if (state) {
             start();
         } else {
             stop();
@@ -120,19 +120,25 @@ public:
 
     /*
      * Загрузка настроек из EEPROM
-     * Возвращает true, если настройки загружены успешно
+     * Возвращает true, если настройки загружены успешно и контрольная сумма верна
      */
     bool loadSettings() {
-        constexpr int address = sizeof(CoolerSettings); // Адрес после настроек компрессора
+        // Адрес начала настроек миксера (после настроек компрессора)
+        constexpr int address = sizeof(CoolerSettings); 
         EEPROMStorage::read(address, settings);
-        return settings.checksum == calculateChecksum();
+        // Если контрольная сумма не совпадает, сбрасываем к настройкам по умолчанию
+        if(settings.checksum != calculateChecksum()) {
+            settings = MixerSettings(); // Инициализация дефолтными значениями
+            return false;
+        }
+        return true;
     }
 
     /*
      * Сохранение настроек в EEPROM
      */
     void saveSettings() {
-        settings.checksum = calculateChecksum();
+        settings.checksum = calculateChecksum(); // Обновляем контрольную сумму перед сохранением
         constexpr int address = sizeof(CoolerSettings);
         EEPROMStorage::write(address, settings);
     }
