@@ -1,12 +1,18 @@
-// SafetySystem.h
 #pragma once
 #include <avr/wdt.h>
 #include <string.h>
 
+/*
+ * Класс системы безопасности
+ * Реализует:
+ * - Контроль активности системы
+ * - Защиту паролем
+ * - Блокировку при неверном вводе
+ */
 class SafetySystem {
 private:
-    const unsigned long TIMEOUT = 10000UL; // Таймаут бездействия (мс)
-    const uint8_t MAX_ATTEMPTS = 3;       // Макс. число попыток ввода пароля
+    const unsigned long TIMEOUT = 10000UL;    // Таймаут бездействия (мс)
+    const uint8_t MAX_ATTEMPTS = 3;          // Макс. число попыток ввода
     const unsigned long LOCK_TIME = 300000UL; // Время блокировки (мс)
     
     unsigned long lastActivity;    // Время последней активности
@@ -17,14 +23,19 @@ private:
     static const char password[] PROGMEM;
 
 public:
-    // Конструктор
+    /*
+     * Конструктор
+     */
     SafetySystem() : 
         lastActivity(millis()),
         lockUntil(0),
         wrongAttempts(0) 
     {}
 
-    // Проверка таймаута бездействия
+    /*
+     * Проверка таймаута бездействия
+     * Вызывает перезагрузку при превышении таймаута
+     */
     void checkActivity() {
         if((millis() - lastActivity) > TIMEOUT) {
             wdt_enable(WDTO_15MS); // Активируем watchdog
@@ -32,12 +43,18 @@ public:
         }
     }
 
-    // Обновление времени последней активности
+    /*
+     * Обновление времени последней активности
+     */
     void updateActivity() {
         lastActivity = millis();
     }
 
-    // Проверка пароля
+    /*
+     * Проверка пароля
+     * input - введенный пароль
+     * Возвращает true при совпадении
+     */
     bool checkPassword(const char* input) {
         if(isLocked()) return false;
         
@@ -47,18 +64,25 @@ public:
             return true;
         }
         
+        // Увеличение счетчика неверных попыток
         if(++wrongAttempts >= MAX_ATTEMPTS) {
             lockUntil = millis() + LOCK_TIME;
         }
         return false;
     }
 
-    // Проверка блокировки
+    /*
+     * Проверка блокировки системы
+     * Возвращает true если система заблокирована
+     */
     bool isLocked() const {
-        return (millis() - lockUntil) < LOCK_TIME;
+        return millis() < lockUntil;
     }
 
-    // Получение оставшегося времени блокировки (сек)
+    /*
+     * Получение оставшегося времени блокировки
+     * Возвращает время в секундах
+     */
     uint16_t getLockRemaining() const {
         if(!isLocked()) return 0;
         unsigned long remaining = lockUntil - millis();

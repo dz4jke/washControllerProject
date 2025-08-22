@@ -1,4 +1,3 @@
-// main.cpp
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
 #include <GyverNTC.h>
@@ -13,7 +12,7 @@
 #include "EEPROMStorage.h"
 #include "SafetySystem.h"
 
-// Пины подключения
+// Определение пинов подключения
 #define TEMP_SENSOR_PIN A0
 #define COMPRESSOR_PIN 8
 #define MIXER_PIN 7
@@ -33,7 +32,7 @@
 #define DISPLAY_UPDATE_INTERVAL 500 // Интервал обновления дисплея (мс)
 
 // Глобальные объекты
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+LiquidCrystal_I2C lcd(0x27, 16, 2); // Адрес 0x27, 16 символов, 2 строки
 TemperatureSensor tempSensor(TEMP_SENSOR_PIN);
 CoolerController cooler(tempSensor, COMPRESSOR_PIN);
 MixerController mixer(MIXER_PIN);
@@ -49,7 +48,9 @@ SafetySystem safety;
 // Переменные состояния
 unsigned long lastDisplayUpdate = 0;
 
-// Обработчик прерывания для кнопки мойки
+/*
+ * Обработчик прерывания для кнопки мойки
+ */
 void washButtonISR()
 {
     if (!buttons.isMenuActive() && !washer.isRunning())
@@ -58,12 +59,11 @@ void washButtonISR()
     }
 }
 
+/*
+ * Функция setup - инициализация системы
+ */
 void setup()
 {
-    cooler.saveSettings(); // Сохраняем настройки сразу при запуске
-        mixer.saveSettings();
-        washer.saveSettings();
-
     wdt_disable(); // Временно отключаем watchdog
 
     // Инициализация последовательного порта
@@ -73,7 +73,6 @@ void setup()
     // Инициализация дисплея
     lcd.init();
     lcd.backlight();
-
     display.showMessage("Initializing...");
 
     // Загрузка настроек
@@ -82,37 +81,32 @@ void setup()
         display.showMessage("Load Settings Err");
         delay(2000);
     }
-    
-    Serial.println(cooler.getSettings().minInterval);
-    Serial.println(cooler.getSettings().checksum);
-    Serial.println(cooler.getSettings().targetTemp);
-    Serial.println(cooler.getSettings().hysteresis);
-    Serial.println(mixer.getSettings().mode);
-    Serial.println(mixer.getSettings().workTime);
-    Serial.println(mixer.getSettings().idleTime);
-    Serial.println(mixer.getSettings().checksum);
-    Serial.println(washer.getSettings().stageTimes[0]);
-    Serial.println(washer.getSettings().stageTimes[1]);
-    Serial.println(washer.getSettings().stageTimes[2]);
-    Serial.println(washer.getSettings().stageTimes[3]);
-    Serial.println(washer.getSettings().stageTimes[4]);
-    Serial.println(washer.getSettings().checksum);
+
     // Настройка прерывания для кнопки мойки
-    attachInterrupt(digitalPinToInterrupt(5), washButtonISR, FALLING);
-    // wdt_enable(WDT_TIMEOUT);  // Включение watchdog
-     display.showMainScreen(tempSensor.getTemp(), mixer.isActive(),cooler.isRunning());
+    attachInterrupt(digitalPinToInterrupt(WASH_BUTTON_PIN), washButtonISR, FALLING);
+
+    // Показываем статус системы
+    display.showMessage("System Ready");
+    delay(2000);
+    display.showMainScreen(tempSensor.getTemp(), mixer.isActive(), cooler.isRunning());
+
+    wdt_enable(WDTO_4S); // Включение watchdog с таймаутом 4 секунды
 }
 
+/*
+ * Главный цикл программы
+ */
 void loop()
 {
-    wdt_reset(); // Сбрасываем watchdog
+    wdt_reset(); // Сбрасываем watchdog timer
 
-    // Обновление всех компонентов
+    // Обновление компонентов
+
     buttons.update();
     tempSensor.update();
-    // safety.checkActivity();
+    safety.checkActivity();
 
-    // Если меню не активно - обновляем основные системы
+    // Основной режим работы (когда меню не активно)
     if (!buttons.isMenuActive())
     {
         cooler.update();

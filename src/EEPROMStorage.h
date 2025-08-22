@@ -1,23 +1,35 @@
-// EEPROMStorage.h
 #pragma once
 #include <EEPROM.h>
 #include <Arduino.h>
 
+/*
+ * Класс для работы с EEPROM
+ * Реализует:
+ * - Чтение/запись любых типов данных
+ * - Очистку EEPROM
+ * - Оптимизированную запись (только при изменении)
+ */
 class EEPROMStorage
 {
 public:
-    // Инициализация (для Arduino Nano не требуется, оставлена для совместимости)
-
-    // Шаблонная функция чтения данных из EEPROM
+    /*
+     * Чтение данных из EEPROM
+     * address - начальный адрес
+     * data - ссылка на объект для чтения
+     */
     template <typename T>
-    static void read(uint16_t address, T &data)
+    static void read(int address, T &data)
     {
         EEPROM.get(address, data);
     }
 
-    // Шаблонная функция записи данных в EEPROM (только если отличается)
+    /*
+     * Запись данных в EEPROM (только если изменились)
+     * address - начальный адрес
+     * data - ссылка на объект для записи
+     */
     template <typename T>
-    static void write(uint16_t address, const T &data)
+    static void write(int address, const T &data)
     {
         T current;
         EEPROM.get(address, current);
@@ -27,10 +39,12 @@ public:
         }
     }
 
-    // Очистка EEPROM (только если не нули, чтобы не расходовать ресурс)
+    /*
+     * Очистка EEPROM (запись 0, только в ячейках с данными)
+     */
     static void clear()
     {
-        for (uint16_t i = 0; i < EEPROM.length(); ++i)
+        for (size_t i = 0; i < EEPROM.length(); ++i)
         {
             if (EEPROM.read(i) != 0)
             {
